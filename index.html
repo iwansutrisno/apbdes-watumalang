@@ -447,21 +447,23 @@ function siskRows(L){const SD='DDS|ADD|PBH|PAD|PBP|PBK|DLL',
  IT=new RegExp('^(\\d{2})\\.\\s+(.+?)\\s+('+SD+')\\s+([\\d.,]+)\\s+(.+?)\\s+([\\d.]+,\\d{2})\\s+([\\d.]+,\\d{2})$'),
  KG=/^(?:Kegiatan\s*:\s*)?(\d\.\d{1,2}\.\d{2})\.\s+(.+)$/,RK=/^(5\.\d\.\d{1,2}\.\d{2})\.\s/,JM=/^JUMLAH \(Rp\)\s+([\d.]+,\d{2})$/,f=n=>String(n).replace('.',',');
  let kc='',kn='',rk='',tot=0,sum=0,yr='',out=[];
- L.forEach(c=>{const t=c.join(' ').replace(/\s+/g,' ').trim();let m;
+ const T=L.map(c=>c.join(' ').replace(/\s+/g,' ').trim());
+ for(let i=0;i<T.length;i++){let t=T[i],m;
   if(!yr&&(m=t.match(/TAHUN ANGGARAN (\d{4})/)))yr=m[1];
-  if(m=t.match(JM)){sum+=Math.round(pn(m[1]));return}
-  if(m=t.match(KG)){kc=m[1];kn=clean(m[2]);rk='';return}
-  if(m=t.match(RK)){rk=m[1];return}
-  if(m=t.match(IT)){const vol=pn(m[4]),h=pn(m[6]),j=Math.round(pn(m[7]));if(j<=0)return;tot+=j;
-   out.push([kc,kn,rk?rk+'.'+m[1]:m[1],clean(m[2]),vol>0?f(vol):'',vol>0?clean(m[5]):'',h>0?f(h):'',m[3],j])}});
- return{rows:out,tot,sum,yr}}
+  if(m=t.match(JM)){sum+=Math.round(pn(m[1]));continue}
+  if(m=t.match(KG)){kc=m[1];kn=clean(m[2]);rk='';continue}
+  if(m=t.match(RK)){rk=m[1];continue}
+  if(/^\d{2}\.\s/.test(t)&&!IT.test(t)){let u=t;for(let k=1;k<=3&&i+k<T.length;k++){u+=' '+T[i+k];if(IT.test(u)){t=u;i+=k;break}}}
+  if(m=t.match(IT)){const vol=pn(m[4]),h=pn(m[6]),j=Math.round(pn(m[7]));if(j<=0)continue;tot+=j;
+   out.push([kc,kn,rk?rk+'.'+m[1]:m[1],clean(m[2]),vol>0?f(vol):'',vol>0?clean(m[5]):'',h>0?f(h):'',m[3],j])}}
+ return{rows:out,tot,sum,yr,smp:L.filter(c=>/^\d{2}\./.test(c[0])).slice(0,3).map(c=>c.join(' | ')).join(' ;; ').slice(0,300)}}
 async function ldPdf(){if(window.pdfjsLib)return;await new Promise((ok,no)=>{const e=document.createElement('script');e.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';e.onload=ok;e.onerror=()=>no(new Error('Pustaka PDF gagal dimuat. Periksa koneksi internet.'));document.head.appendChild(e)});pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
 async function impPdf(f){const st=$('pst');st.textContent='Membaca PDF…';try{await ldPdf();const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise,L=[];
  for(let p=1;p<=pdf.numPages;p++){const it=(await(await pdf.getPage(p)).getTextContent()).items.filter(i=>i.str.trim()).map(i=>({s:i.str,x:i.transform[4],y:i.transform[5],w:i.width})).sort((a,b)=>b.y-a.y),R=[];
   it.forEach(i=>{const r=R[R.length-1];if(r&&Math.abs(r.y-i.y)<=3)r.i.push(i);else R.push({y:i.y,i:[i]})});
   R.forEach(r=>{r.i.sort((a,b)=>a.x-b.x);const c=[];let cur='',end=null;r.i.forEach(i=>{if(end!==null&&i.x-end>6){c.push(cur.trim());cur=''}cur+=(cur&&end!==null&&i.x-end>0.5?' ':'')+i.s;end=i.x+i.w});c.push(cur.trim());L.push(c.filter(Boolean))})}
  if(!L.length)return st.textContent='PDF tidak berisi teks (kemungkinan hasil scan). Gunakan PDF dari Siskeudes/Excel atau unggah CSV.';
- const sk=siskRows(L),rows=sk.rows.length?sk.rows:pdfRows(L,'');if(!rows.length)return st.textContent='Baris RAB tidak dikenali. Pastikan PDF memuat kode rekening (mis. 5.2.1.01.01) beserta jumlahnya, atau gunakan CSV.';
+ const sk=siskRows(L),rows=sk.rows.length?sk.rows:pdfRows(L,'');if(!rows.length)return st.textContent='Baris RAB tidak dikenali. Pastikan PDF memuat kode rekening (mis. 5.2.1.01.01) beserta jumlahnya, atau gunakan CSV. Contoh baris terbaca: '+(sk.smp||'(tidak ada baris bernomor 01.)');
  $('imt').value=['kode kegiatan','nama kegiatan','kode rekening','uraian','volume','satuan','harga satuan','sumber dana','pagu'].join('\t')+'\n'+rows.map(r=>r.join('\t')).join('\n');
  const nd=rows.filter(r=>!r[7]).length;st.textContent='Terbaca '+rows.length+' baris'+(sk.rows.length?' (format Siskeudes, total '+rp(sk.tot)+(sk.sum?(Math.abs(sk.tot-sk.sum)<=rows.length?', cocok dengan JUMLAH di PDF':', BEDA dari JUMLAH di PDF '+rp(sk.sum)+', periksa'):'')+(sk.yr&&sk.yr!=TH()?'. PDF ini TA '+sk.yr+' sedangkan tahun aktif '+TH()+': ganti tahun dulu lewat tombol + Tahun':'')+')':'')+', sumber dana mengikuti PDF.'+(nd?' '+nd+' baris sumber dananya tidak terbaca (akan masuk Lain-lain); isi kolom sumber dana (DDS, ADD, PBH, PAD, PBP, PBK) di kotak tempel bila perlu.':'')+' Periksa isinya di kotak tempel di bawah, lalu tekan Impor RAB.'}catch(e){st.textContent='Gagal membaca PDF: '+String(e.message||e).slice(0,100)}}
 initLast();document.addEventListener('visibilitychange',()=>{if(!document.hidden)clSync()});setTimeout(clSync,500);
